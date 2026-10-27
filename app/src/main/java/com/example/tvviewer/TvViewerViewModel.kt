@@ -1,16 +1,14 @@
 package com.example.tvviewer
 
 import android.content.Context
-import android.net.Uri
 import android.os.Environment
-import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.io.File
-import java.io.FileOutputStream
+import java.net.URLEncoder
 
 data class TvViewerUiState(
     val currentDirectoryPath: String = "",
@@ -20,9 +18,10 @@ data class TvViewerUiState(
     val activeWebUrl: String = "",
     val activeSourceBadge: String = "",
     val showRemoteOverlay: Boolean = true,
-    val statusBanner: String = "Listo • Interceptor 8 KB usb.tvlocal activo",
+    val statusBanner: String = "Esperando memoria USB...",
     val recentStreams: List<StreamLogItem> = emptyList(),
-    val showGuideDialog: Boolean = false
+    val showGuideDialog: Boolean = false,
+    val loadRequestTick: Long = 0L
 )
 
 class TvViewerViewModel : ViewModel() {
@@ -30,39 +29,63 @@ class TvViewerViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(TvViewerUiState())
     val uiState: StateFlow<TvViewerUiState> = _uiState.asStateFlow()
 
-    private var demoRootDir: File? = null
     private var currentDir: File? = null
 
     companion object {
-        private val TECHNICAL_DIR_NAMES = setOf("css", "js", "img", "assets", "fonts", "images")
         private val CANDIDATE_USB_MOUNTS = arrayOf(
             "/storage/usb1",
             "/storage/usb2",
             "/storage/usbotg",
             "/storage/udisk0",
+            "/storage/udisk1",
             "/mnt/media_rw",
-            "/mnt/usb_storage"
+            "/mnt/usb_storage",
+            "/mnt/usb",
+            "/storage"
         )
     }
 
     fun initializeWorkspace(context: Context) {
-        val demoDir = DemoUsbWorkspaceBuilder.ensureDemoUsbWorkspace(context)
-        demoRootDir = demoDir
-
-        val mountedUsb = findMountedUsbDirectory()
-        if (mountedUsb != null) {
-            openDirectory(mountedUsb, "Memoria USB Física detectada: ${mountedUsb.absolutePath}")
-        } else {
-            openDirectory(demoDir, "MEMORIA_USB Lista (Menús y .ZIP de demostración cargados)")
-        }
+        scanForUsbOrExternal(context)
     }
 
+    /**
+     * Busca activamente la memoria USB conectada al televisor Android 6.0+.
+     * También inspecciona subcarpetas de /storage y /mnt/media_rw donde muchos TV montan las USB por UUID (ej. /storage/1A2B-3C4D).
+     */
     fun findMountedUsbDirectory(): File? {
-        for (path in CANDIDATE_USB_MOUNTS) {
+        // 1. Puntos de montaje directos clásicos en Android TV 6.0
+        val directMounts = arrayOf(
+            "/storage/usb1",
+            "/storage/usb2",
+            "/storage/usbotg",
+            "/storage/udisk0",
+            "/storage/udisk1",
+            "/mnt/usb_storage"
+        )
+        for (path in directMounts) {
             val dir = File(path)
             if (dir.exists() && dir.isDirectory && dir.canRead()) {
                 val children = dir.listFiles()
                 if (!children.isNullOrEmpty()) return dir
+            }
+        }
+
+        // 2. Volúmenes montados por UUID en /storage/<UUID> o /mnt/media_rw/<UUID>
+        val volumeParents = arrayOf("/storage", "/mnt/media_rw")
+        for (parentPath in volumeParents) {
+            val parent = File(parentPath)
+            if (parent.exists() && parent.isDirectory && parent.canRead()) {
+                val subDirs = parent.listFiles() ?: continue
+                for (sub in subDirs) {
+                    val name = sub.name.lowercase()
+                    if (name != "emulated" && name != "self" && sub.isDirectory && sub.canRead()) {
+                        val children = sub.listFiles()
+                        if (!children.isNullOrEmpty()) {
+                            return sub
+                        }
+                    }
+                }
             }
         }
         return null
@@ -71,25 +94,24 @@ class TvViewerViewModel : ViewModel() {
     fun scanForUsbOrExternal(context: Context) {
         val usb = findMountedUsbDirectory()
         if (usb != null) {
-            openDirectory(usb, "Memoria USB detectada en ${usb.absolutePath}")
+            openDirectory(usb, "Memoria USB detectada: ${usb.absolutePath}")
             return
         }
+
         val ext = Environment.getExternalStorageDirectory()
-        if (ext != null && ext.exists() && ext.canRead() && !ext.listFiles().isNullOrEmpty()) {
-            openDirectory(ext, "Almacenamiento Externo: ${ext.absolutePath}")
+        if (ext != null && ext.exists() && ext.canRead()) {
+            openDirectory(ext, "Sin USB detectada • Mostrando almacenamiento del TV: ${ext.absolutePath}")
         } else {
-            val demo = demoRootDir ?: DemoUsbWorkspaceBuilder.ensureDemoUsbWorkspace(context)
-            openDirectory(
-                demo,
-                "Sin USB externo montado • Mostrando unidad virtual MEMORIA_USB"
-            )
+            val storageRoot = File("/storage")
+            openDirectory(storageRoot, "Inserta tu memoria USB y pulsa «Refrescar USB»")
         }
     }
 
-    fun openDemoWorkspace(context: Context) {
-        val demo = DemoUsbWorkspaceBuilder.ensureDemoUsbWorkspace(context)
-        demoRootDir = demo
-        openDirectory(demo, "Espacio MEMORIA_USB para Negocios cargado")
+    fun openInternalStorage() {
+        val ext = Environment.getExternalStorageDirectory()
+        if (ext != null && ext.exists()) {
+            openDirectory(ext, "Almacenamiento interno del TV: ${ext.absolutePath}")
+        }
     }
 
     fun openDirectory(directory: File, customStatus: String? = null) {
@@ -97,11 +119,7 @@ class TvViewerViewModel : ViewModel() {
         val builtEntries = mutableListOf<ExplorerEntry>()
 
         val parent = directory.parentFile
-        val demoRootPath = demoRootDir?.canonicalPath
-        val currentCanonical = runCatching { directory.canonicalPath }.getOrDefault(directory.absolutePath)
-
-        // Permite subir a carpeta anterior si tiene permisos de lectura y no sale del espacio seguro
-        if (parent != null && parent.canRead() && currentCanonical != demoRootPath) {
+        if (parent != null && parent.exists() && parent.canRead()) {
             builtEntries.add(
                 ExplorerEntry(
                     file = parent,
@@ -120,19 +138,18 @@ class TvViewerViewModel : ViewModel() {
         if (files != null) {
             for (f in files) {
                 val lower = f.name.lowercase()
+                if (lower.startsWith(".")) continue
+
                 if (f.isDirectory) {
-                    // Oculta carpetas técnicas (css, js, img) tal como indica la guía para no confundir en el TV
-                    if (lower !in TECHNICAL_DIR_NAMES && !lower.startsWith(".")) {
-                        builtEntries.add(
-                            ExplorerEntry(
-                                file = f,
-                                type = ExplorerEntryType.DIRECTORY,
-                                displayTitle = f.name,
-                                tagLabel = "[CARPETA]",
-                                sizeLabel = "Carpeta"
-                            )
+                    builtEntries.add(
+                        ExplorerEntry(
+                            file = f,
+                            type = ExplorerEntryType.DIRECTORY,
+                            displayTitle = f.name,
+                            tagLabel = "[CARPETA]",
+                            sizeLabel = "Carpeta"
                         )
-                    }
+                    )
                 } else if (lower.endsWith(".zip")) {
                     builtEntries.add(
                         ExplorerEntry(
@@ -163,7 +180,7 @@ class TvViewerViewModel : ViewModel() {
                 entries = builtEntries,
                 selectedIndex = 0,
                 isViewerOpen = false,
-                statusBanner = customStatus ?: "Explorando: ${directory.name}"
+                statusBanner = customStatus ?: "Explorando: ${directory.absolutePath}"
             )
         }
     }
@@ -202,20 +219,23 @@ class TvViewerViewModel : ViewModel() {
                         activeWebUrl = url,
                         activeSourceBadge = "[PAQUETE ZIP] ${entry.file.name}",
                         recentStreams = emptyList(),
-                        statusBanner = "Flujo directo 8 KB desde ${entry.file.name}"
+                        statusBanner = "Flujo directo 8 KB desde ${entry.file.name}",
+                        loadRequestTick = System.currentTimeMillis()
                     )
                 }
             }
             ExplorerEntryType.HTML_PAGE -> {
                 streamClient.setActiveRootDirectory(entry.file.parentFile)
-                val url = "https://${UsbStreamWebViewClient.LOCAL_HOST}/${entry.file.name}"
+                val encodedName = URLEncoder.encode(entry.file.name, "UTF-8").replace("+", "%20")
+                val url = "https://${UsbStreamWebViewClient.LOCAL_HOST}/$encodedName"
                 _uiState.update {
                     it.copy(
                         isViewerOpen = true,
                         activeWebUrl = url,
                         activeSourceBadge = "[PÁGINA HTML] ${entry.file.name}",
                         recentStreams = emptyList(),
-                        statusBanner = "Sirviendo ${entry.file.name} + dependencias desde USB"
+                        statusBanner = "Sirviendo ${entry.file.name} + dependencias desde USB",
+                        loadRequestTick = System.currentTimeMillis()
                     )
                 }
             }
@@ -250,52 +270,6 @@ class TvViewerViewModel : ViewModel() {
                 .take(6)
             state.copy(recentStreams = updated)
         }
-    }
-
-    fun importExternalUriToUsbWorkspace(context: Context, uri: Uri, streamClient: UsbStreamWebViewClient) {
-        try {
-            val targetDir = currentDir ?: DemoUsbWorkspaceBuilder.ensureDemoUsbWorkspace(context)
-            var fileName = queryDisplayName(context, uri) ?: "importado_${System.currentTimeMillis()}.html"
-            val lower = fileName.lowercase()
-            if (!lower.endsWith(".html") && !lower.endsWith(".htm") && !lower.endsWith(".zip")) {
-                fileName += ".html"
-            }
-
-            val destFile = File(targetDir, fileName)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(destFile).use { output ->
-                    input.copyTo(output, 8192)
-                }
-            }
-
-            openDirectory(targetDir, "Archivo importado: $fileName")
-            val newIdx = _uiState.value.entries.indexOfFirst { it.file.absolutePath == destFile.absolutePath }
-            if (newIdx >= 0) {
-                selectEntryAt(newIdx, streamClient)
-            }
-        } catch (e: Exception) {
-            _uiState.update {
-                it.copy(statusBanner = "Error al importar archivo: ${e.localizedMessage ?: "desconocido"}")
-            }
-        }
-    }
-
-    private fun queryDisplayName(context: Context, uri: Uri): String? {
-        var result: String? = null
-        if (uri.scheme == "content") {
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0) {
-                        result = cursor.getString(idx)
-                    }
-                }
-            }
-        }
-        if (result == null) {
-            result = uri.path?.substringAfterLast('/')
-        }
-        return result
     }
 
     private fun formatSize(bytes: Long): String {

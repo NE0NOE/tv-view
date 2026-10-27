@@ -6,10 +6,8 @@
     <string name="tag_folder">[CARPETA]</string>
     <string name="tag_zip">[PAQUETE ZIP]</string>
     <string name="tag_html">[PÁGINA HTML]</string>
-    <string name="btn_usb_scan">Detectar USB</string>
-    <string name="btn_demo_workspace">Espacio Demo Negocios</string>
-    <string name="btn_import_file">Importar .HTML / .ZIP</string>
-    <string name="btn_export_source">Código APK 64KB (.ZIP)</string>
+    <string name="btn_usb_scan">Refrescar USB</string>
+    <string name="btn_internal_storage">Memoria Interna</string>
     <string name="btn_remote_toggle">Control TV</string>
     <string name="btn_back_menu">Volver al Menú</string>
     <string name="dpad_up">Arriba</string>
@@ -19,5 +17,5 @@
     <string name="dpad_ok">OK</string>
     <string name="dpad_back">BACK</string>
     <string name="status_streaming">8 KB Buffered Stream • usb.tvlocal • 0% CPU Idle</string>
-    <string name="empty_folder_message">No se encontraron carpetas ni archivos .html / .zip en esta ruta. Pulsa «Espacio Demo Negocios» o «Importar .HTML / .ZIP» para probar de inmediato.</string>
+    <string name="empty_folder_message">No se encontraron carpetas ni archivos .html / .zip en esta ruta. Inserta una memoria USB formateada en FAT32 o pulsa «Refrescar USB».</string>
 </resources>

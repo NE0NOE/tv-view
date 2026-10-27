@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -60,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -80,8 +80,7 @@ fun TvLocalViewerApp(
     webView: WebView,
     onEntryClick: (Int) -> Unit,
     onScanUsbClick: () -> Unit,
-    onDemoWorkspaceClick: () -> Unit,
-    onImportFileClick: () -> Unit,
+    onInternalStorageClick: () -> Unit,
     onToggleRemoteOverlay: () -> Unit,
     onToggleGuideDialog: (Boolean) -> Unit,
     onDpadUp: () -> Unit,
@@ -91,7 +90,16 @@ fun TvLocalViewerApp(
     onDpadOk: () -> Unit,
     onDpadBack: () -> Unit
 ) {
-    // Manejo del botón BACK del sistema / control remoto cuando el visor WebView está abierto
+    // Dispara la recarga en el WebView cada vez que el usuario selecciona un archivo .html o .zip
+    // incluso si el nombre de la URL virtual coincide (por ejemplo index.html en dos .zip distintos)
+    LaunchedEffect(uiState.loadRequestTick, uiState.isViewerOpen, uiState.activeWebUrl) {
+        if (uiState.isViewerOpen && uiState.activeWebUrl.isNotEmpty()) {
+            webView.stopLoading()
+            webView.loadUrl(uiState.activeWebUrl)
+            webView.requestFocus()
+        }
+    }
+
     if (uiState.isViewerOpen) {
         BackHandler {
             onDpadBack()
@@ -107,12 +115,6 @@ fun TvLocalViewerApp(
         // 1. Capa de fondo: WebView ultraligero con interceptor 8 KB (UsbStreamWebViewClient)
         AndroidView(
             factory = { webView },
-            update = { view ->
-                val targetUrl = uiState.activeWebUrl
-                if (uiState.isViewerOpen && targetUrl.isNotEmpty() && view.url != targetUrl) {
-                    view.loadUrl(targetUrl)
-                }
-            },
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("tv_webview_container")
@@ -145,14 +147,13 @@ fun TvLocalViewerApp(
                 uiState = uiState,
                 onEntryClick = onEntryClick,
                 onScanUsbClick = onScanUsbClick,
-                onDemoWorkspaceClick = onDemoWorkspaceClick,
-                onImportFileClick = onImportFileClick,
+                onInternalStorageClick = onInternalStorageClick,
                 onToggleRemoteOverlay = onToggleRemoteOverlay,
                 onShowGuide = { onToggleGuideDialog(true) }
             )
         }
 
-        // 4. Control Remoto TV D-Pad Flotante (para probar en emulador / pantalla táctil o TV)
+        // 4. Control Remoto TV D-Pad Flotante
         if (uiState.showRemoteOverlay) {
             FloatingTvRemoteDpad(
                 modifier = Modifier
@@ -179,8 +180,7 @@ private fun CleanUsbExplorerScreen(
     uiState: TvViewerUiState,
     onEntryClick: (Int) -> Unit,
     onScanUsbClick: () -> Unit,
-    onDemoWorkspaceClick: () -> Unit,
-    onImportFileClick: () -> Unit,
+    onInternalStorageClick: () -> Unit,
     onToggleRemoteOverlay: () -> Unit,
     onShowGuide: () -> Unit
 ) {
@@ -197,7 +197,6 @@ private fun CleanUsbExplorerScreen(
             )
             .padding(horizontal = 24.dp, vertical = 18.dp)
     ) {
-        // Cabecera TV Local USB
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -268,7 +267,7 @@ private fun CleanUsbExplorerScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Ruta activa (igual a pathHeaderView en MainActivity.java de la guía)
+        // Ruta activa (Abrir Carpeta / USB)
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(12.dp),
@@ -296,7 +295,7 @@ private fun CleanUsbExplorerScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Barra de acciones rápidas (Escanear USB real, Espacio Demo MEMORIA_USB, Importar .ZIP/.HTML)
+        // Botones limpios: Refrescar USB y Memoria Interna
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth()
@@ -317,9 +316,9 @@ private fun CleanUsbExplorerScreen(
             }
             item {
                 OutlinedButton(
-                    onClick = onDemoWorkspaceClick,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.testTag("demo_workspace_button")
+                    onClick = onInternalStorageClick,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.testTag("internal_storage_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Storage,
@@ -327,29 +326,14 @@ private fun CleanUsbExplorerScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.btn_demo_workspace))
-                }
-            }
-            item {
-                OutlinedButton(
-                    onClick = onImportFileClick,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier.testTag("import_file_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.UploadFile,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.btn_import_file))
+                    Text(stringResource(R.string.btn_internal_storage))
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Lista limpia de carpetas, .HTML y paquetes .ZIP (con foco D-Pad resaltado en #38BDF8)
+        // Lista limpia de carpetas, .HTML y paquetes .ZIP
         if (uiState.entries.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -397,7 +381,7 @@ private fun ExplorerEntryRow(
     index: Int
 ) {
     val borderColor = if (isFocused) {
-        MaterialTheme.colorScheme.primary // #38BDF8
+        MaterialTheme.colorScheme.primary
     } else {
         MaterialTheme.colorScheme.outline
     }
@@ -643,7 +627,6 @@ private fun FloatingTvRemoteDpad(
             )
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Flecha Arriba
             RemoteCircleButton(
                 onClick = onUp,
                 tag = "dpad_up_button",
@@ -652,7 +635,6 @@ private fun FloatingTvRemoteDpad(
                 Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
             }
 
-            // Izquierda - OK - Derecha
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -694,7 +676,6 @@ private fun FloatingTvRemoteDpad(
                 }
             }
 
-            // Flecha Abajo
             RemoteCircleButton(
                 onClick = onDown,
                 tag = "dpad_down_button",
@@ -773,7 +754,7 @@ private fun ArchitectureInfoDialog(
                 modifier = Modifier.widthIn(max = 480.dp)
             ) {
                 Text(
-                    "• UsbStreamWebViewClient: Intercepta peticiones en https://usb.tvlocal/ y sirve HTML, CSS, JS, SVG y paquetes .ZIP mediante un BufferedInputStream de 8 KB sin descomprimir en la memoria flash del TV.",
+                    "• UsbStreamWebViewClient: Intercepta peticiones en https://usb.tvlocal/ (tanto API 23 String URL como WebResourceRequest) y sirve HTML, CSS, JS, SVG, imágenes y paquetes .ZIP mediante un BufferedInputStream de 8 KB.",
                     fontSize = 13.sp
                 )
                 Text(
@@ -781,7 +762,7 @@ private fun ArchitectureInfoDialog(
                     fontSize = 13.sp
                 )
                 Text(
-                    "• UsbMountReceiver + LEANBACK_LAUNCHER: Detecta memorias USB en /storage/usb1, usbotg, udisk0 y libera RAM automáticamente en onTrimMemory().",
+                    "• UsbMountReceiver + LEANBACK_LAUNCHER: Detecta memorias USB en /storage/usb1, usbotg, udisk0 y volúmenes UUID en /storage/<UUID>.",
                     fontSize = 13.sp
                 )
             }

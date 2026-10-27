@@ -49,18 +49,6 @@ class MainActivity : ComponentActivity() {
                 viewModel.scanForUsbOrExternal(applicationContext)
             }
 
-            val fileImportLauncher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.OpenDocument()
-            ) { uri ->
-                if (uri != null) {
-                    viewModel.importExternalUriToUsbWorkspace(
-                        context = applicationContext,
-                        uri = uri,
-                        streamClient = streamClient
-                    )
-                }
-            }
-
             LaunchedEffect(Unit) {
                 if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
                     val granted = ContextCompat.checkSelfPermission(
@@ -69,6 +57,8 @@ class MainActivity : ComponentActivity() {
                     ) == PackageManager.PERMISSION_GRANTED
                     if (!granted) {
                         storagePermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    } else {
+                        viewModel.scanForUsbOrExternal(applicationContext)
                     }
                 }
             }
@@ -89,18 +79,8 @@ class MainActivity : ComponentActivity() {
                     onScanUsbClick = {
                         viewModel.scanForUsbOrExternal(applicationContext)
                     },
-                    onDemoWorkspaceClick = {
-                        viewModel.openDemoWorkspace(applicationContext)
-                    },
-                    onImportFileClick = {
-                        fileImportLauncher.launch(
-                            arrayOf(
-                                "text/html",
-                                "application/zip",
-                                "application/x-zip-compressed",
-                                "application/octet-stream"
-                            )
-                        )
+                    onInternalStorageClick = {
+                        viewModel.openInternalStorage()
                     },
                     onToggleRemoteOverlay = {
                         viewModel.toggleRemoteOverlay()
@@ -127,8 +107,11 @@ class MainActivity : ComponentActivity() {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 cacheMode = WebSettings.LOAD_NO_CACHE
-                allowFileAccess = false
-                allowContentAccess = false
+                allowFileAccess = true
+                allowContentAccess = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                }
             }
         }
 
@@ -208,6 +191,7 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (::webView.isInitialized && level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
