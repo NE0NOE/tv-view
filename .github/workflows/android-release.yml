@@ -1,4 +1,4 @@
-name: Build & Release Android TV APK
+name: Build & Release Android TV 6.0 (API 23) APK
 
 on:
   push:
@@ -10,16 +10,16 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Versión del Release (ej. v1.0.0)'
+        description: 'Versión del Release (ej. v1.0.1)'
         required: false
-        default: 'v1.0.0'
+        default: 'v1.0.1'
 
 permissions:
   contents: write
 
 jobs:
   build-and-release:
-    name: Compilar APK Release y Publicar en GitHub
+    name: Compilar APK Android TV 6.0 (API 23 + V1 Signing)
     runs-on: ubuntu-latest
 
     steps:
@@ -35,11 +35,12 @@ jobs:
       - name: 3. Configurar Gradle con caché
         uses: gradle/actions/setup-gradle@v3
 
-      - name: 4. Generar Keystore de firma si no existe
+      - name: 4. Generar Keystore RSA compatible con Android 6.0 (V1 JAR Signing)
         run: |
           if [ ! -f "my-upload-key.jks" ]; then
             keytool -genkeypair -v \
               -keystore my-upload-key.jks \
+              -storetype PKCS12 \
               -alias upload \
               -keyalg RSA \
               -keysize 2048 \
@@ -49,7 +50,7 @@ jobs:
               -dname "CN=TVLocalWeb, OU=AndroidTV, O=VisorLocalUSB, L=Ciudad, S=Estado, C=ES"
           fi
 
-      - name: 5. Compilar APK Release y Debug
+      - name: 5. Compilar APK Release y Debug (minSdk 23 / targetSdk 23)
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
           STORE_PASSWORD: androidrelease
@@ -57,34 +58,36 @@ jobs:
         run: |
           gradle assembleRelease assembleDebug
 
-      - name: 6. Empaquetar MEMORIA_USB de ejemplo para negocios (.zip)
+      - name: 6. Preparar APKs para descarga
         run: |
           mkdir -p dist_release
-          cp app/build/outputs/apk/release/app-release.apk dist_release/VisorLocalUSB-AndroidTV-release.apk
-          cp app/build/outputs/apk/debug/app-debug.apk dist_release/VisorLocalUSB-AndroidTV-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk dist_release/VisorLocalUSB-AndroidTV6-API23-release.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist_release/VisorLocalUSB-AndroidTV6-API23-debug.apk
 
       - name: 7. Subir APKs como Artefactos de GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: VisorLocalUSB-AndroidTV-APKs
+          name: VisorLocalUSB-AndroidTV6-API23-APKs
           path: |
-            dist_release/VisorLocalUSB-AndroidTV-release.apk
-            dist_release/VisorLocalUSB-AndroidTV-debug.apk
+            dist_release/VisorLocalUSB-AndroidTV6-API23-release.apk
+            dist_release/VisorLocalUSB-AndroidTV6-API23-debug.apk
 
       - name: 8. Publicar en GitHub Releases (Descarga directa)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'v1.0.0-latest' }}
-          name: "Visor Local USB - Android TV Release (${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'v1.0.0' }})"
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'v1.0.1-api23' }}
+          name: "Visor Local USB - Android TV 6.0 (API 23) Release"
           body: |
-            ## 📺 Visor Local USB (`TVLocalWeb`) — Descarga Directa APK
-            Visor nativo para televisores Android TV (API 23 / Android 6.0+) y dispositivos Android con soporte de streaming en bloques de 8 KB desde memorias USB y paquetes `.zip` sin conexión a internet.
+            ## 📺 Visor Local USB (`TVLocalWeb`) — Especial Android TV 6.0 (API 23)
+            Soluciona el error **"Error al analizar el paquete" (Parse Error)** en televisores Android 6.0 (API 23):
+            - Configurado con **`minSdk = 23`** y **`targetSdk = 23`**.
+            - Habilitada la **Firma V1 (JAR Signature `enableV1Signing = true`)**, indispensable para Android 6.0 (ya que el esquema V2 se introdujo recién en Android 7.0).
 
             ### 📦 Archivos incluidos para descargar:
-            - **`VisorLocalUSB-AndroidTV-release.apk`**: APK compilada, firmada y lista para instalar en el televisor vía memoria USB o ADB (`adb install -r VisorLocalUSB-AndroidTV-release.apk`).
-            - **`VisorLocalUSB-AndroidTV-debug.apk`**: Versión de pruebas y depuración.
+            - **`VisorLocalUSB-AndroidTV6-API23-release.apk`**: APK de producción firmada con V1+V2, lista para instalar por USB o ADB.
+            - **`VisorLocalUSB-AndroidTV6-API23-debug.apk`**: Versión debug con firma V1+V2.
           files: |
-            dist_release/VisorLocalUSB-AndroidTV-release.apk
-            dist_release/VisorLocalUSB-AndroidTV-debug.apk
+            dist_release/VisorLocalUSB-AndroidTV6-API23-release.apk
+            dist_release/VisorLocalUSB-AndroidTV6-API23-debug.apk
           draft: false
           prerelease: false
